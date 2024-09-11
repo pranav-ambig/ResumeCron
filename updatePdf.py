@@ -4,6 +4,8 @@ import os
 import sys
 import shutil
 from win10toast_click import ToastNotifier
+import subprocess
+import logging
 
 # Constants
 LEETCODE_API_URL = 'https://alfa-leetcode-api.onrender.com/' 
@@ -12,10 +14,20 @@ COMPILATION_NAME = 'Resume' if len(sys.argv) < 3 else sys.argv[2]
 DESTINATION_PATH = '' if len(sys.argv) < 4 else sys.argv[3]
 SCRIPT_PATH = os.path.dirname(os.path.abspath(__file__))
 
-os.chdir(SCRIPT_PATH)
 
+# Setup
+os.chdir(SCRIPT_PATH)
 ProfileStats = {}
 
+# Logging
+logging.basicConfig(
+    filename='app.log',
+    filemode='a',
+    format='%(asctime)s - %(levelname)s - %(message)s',
+    level=logging.INFO
+)
+
+# Functions
 def readProfileStats():
     global ProfileStats
     with open('./ProfileStats.json') as f:
@@ -44,7 +56,7 @@ def updateProfileStats():
     currentSolved = getProblemCount()
 
     currentRating = max(prevRating, currentRating)
-    currentTopPercentage = max(prevTopPercentage, currentTopPercentage)
+    currentTopPercentage = min(prevTopPercentage, currentTopPercentage)
 
     if (currentRating == prevRating 
         and currentTopPercentage == prevTopPercentage 
@@ -75,7 +87,9 @@ def updateTex():
         "{{LCProblemCount}}": solved,
     }
 
-    with open("./Resume.tex", "r") as file:
+    shutil.copy2("./Resume.tex", "./" + COMPILATION_NAME + ".tex")
+
+    with open("./" + COMPILATION_NAME + ".tex", "r") as file:
         resumeTex = file.read()
 
     for placeholder, value in replacements.items():
@@ -86,7 +100,11 @@ def updateTex():
 
 
 def compileAndMovePdf():
-    os.system("lualatex "+ COMPILATION_NAME + ".tex")
+    subprocess.run(
+        ["lualatex", COMPILATION_NAME + ".tex"],
+        creationflags=subprocess.CREATE_NO_WINDOW,
+        shell=True
+    )
     print("Updated Resume PDF")
 
     if DESTINATION_PATH:
@@ -96,8 +114,17 @@ def compileAndMovePdf():
         shutil.copy2(COMPILATION_NAME + ".pdf", DESTINATION_PATH)
     print("Done!")
 
-def notify():
+def notify(error=False):
     toaster = ToastNotifier()
+
+    if error:
+        toaster.show_toast(
+            "Resume Updater",
+            "Error in updating Resume...", 
+            duration=5,
+            threaded=True
+        )
+        return
     toaster.show_toast(
         "Resume Updater",
         "Successfully updated Resume!", 
@@ -107,13 +134,21 @@ def notify():
     )
 
 def main():
-    readProfileStats()
-    if updateProfileStats():
-        updateTex()
-        compileAndMovePdf()
-        writeProfileStats()
-        notify()
-    sys.exit(0)
+    try:
+        readProfileStats()
+        if updateProfileStats():
+            updateTex()
+            compileAndMovePdf()
+            writeProfileStats()
+            notify()
+            logging.info(f"Successfully updated Resume! {ProfileStats}", )
+        else:
+            logging.info("No Updates")
+    except Exception as e:
+        notify(error=True)
+        logging.error(e)
+
 
 if __name__ == '__main__':
     main()
+    sys.exit(0)
